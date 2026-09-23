@@ -1,0 +1,8 @@
+# Attack Shark X11. The mouse's raw HID nodes are root-only by default; this
+# grants access to whoever is logged in at the machine, so the app can
+# configure the mouse without running as root.
+# 1d57:fa60 = 2.4 GHz receiver, 1d57:fa55 = wired.
+# Numbered below 73: systemd grants uaccess in 73-seat-late.rules, so the tag
+# has to be set before that or newly plugged devices never get access.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa60", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa55", MODE="0660", TAG+="uaccess"

@@ -1,216 +1,145 @@
-# attack-shark-x11-driver
+# Attack Shark X11 — Linux app
 
-[![npm version](https://img.shields.io/npm/v/attack-shark-x11-driver.svg)](https://www.npmjs.com/package/attack-shark-x11-driver)
-[![license](https://img.shields.io/npm/l/attack-shark-x11-driver.svg)](https://github.com/HarukaYamamoto0/attack-shark-x11-driver/blob/main/LICENSE)
-[![Bun](https://img.shields.io/badge/Bun-%23000000.svg?style=flat\&logo=bun\&logoColor=white)](https://bun.sh)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/HarukaYamamoto0/attack-shark-x11-driver)
+A desktop app for configuring the Attack Shark X11 gaming mouse on Linux. The
+official software is Windows-only.
 
-A TypeScript driver for the **Attack Shark X11 gaming mouse**, providing cross-platform support, primarily focused on
-Linux, for configuring DPI, button mappings, macros, lighting, and polling rates through USB HID.
+Python and GTK4/libadwaita, nothing else. No daemon, no browser, no Node.
 
-The official software is Windows-only. This project provides a way to communicate with the device from any platform
-supported by Node.js, Bun, and the underlying HID implementation.
+![DPI stages page, with the battery card in the sidebar](docs/screenshots/dpi.png)
 
-## Project Status
+## What it does
 
-Reverse engineering is currently ongoing, albeit at a slower pace.
+- **DPI** — eight stages, each with its own value and colour, choose which are in
+  the button cycle, switch the active one
+- **Buttons** — remap left, right, middle and both side buttons to clicks,
+  keyboard keys or shortcuts, media keys, DPI cycling or Easy aim — the same
+  actions the official software offers for the X11
+- **Macros** — record key and click sequences with timing, on any of the five
+  buttons, played a set number of times, until another mouse button is clicked,
+  or while the button is held
+- **Lighting** — effect, colour, brightness, animation speed
+- **Power** — sleep and deep-sleep timers, click debounce
+- **Battery** — percentage and charging state, updated within seconds of docking,
+  shows when the mouse is asleep, and estimates time left from how fast your
+  mouse charges and drains
+- **Profiles** — save every setting as a preset, re-apply it, import and export
+- **Pointer** — speed, acceleration and scrolling (Hyprland only; these belong to
+  the compositor, not the mouse)
 
-Reverse engineering proprietary hardware and undocumented protocols requires a significant amount of time. Although I
-truly enjoy this work, it does not generate a direct financial return at the moment, and I need to balance my time
-between work, studies, and other responsibilities.
+## Screenshots
 
-Under different circumstances, I would gladly dedicate most of my time to reverse engineering. Unfortunately,
-maintaining that level of dedication is not sustainable right now.
+| Performance | Lighting |
+| --- | --- |
+| ![DPI stages, polling rate and sensor settings, with the mouse on battery](docs/screenshots/dpi.png) | ![Lighting page, with the mouse charging on its dock](docs/screenshots/lighting.png) |
+| **Buttons** | **Power & device** |
+| ![Button mapping page](docs/screenshots/buttons.png) | ![Sleep timers and reset, with the mouse charging over its USB cable](docs/screenshots/power.png) |
 
-The existing implementation, documentation, data captures, and research will remain publicly available so that other
-developers can continue the work.
+The battery card shows whether the mouse is on battery, on its dock or charger,
+or plugged into the PC by cable. Battery values in these screenshots are examples.
 
-Issues and pull requests are still welcome. I will review them whenever my time permits, but there is no guarantee
-regarding response times, release schedules, or development roadmaps.
-
-## Features
-
-* ✅ **DPI Configuration**: Configure DPI stages and select the active stage.
-* ✅ **Button Remapping**: Customize button behavior.
-* ✅ **Macros**: Create and configure macros.
-* ✅ **Lighting Control**: Configure lighting modes and animation speeds.
-* ✅ **Polling Rate**: Support for 125 Hz to 1000 Hz.
-* ✅ **Cross-platform**: Primarily tested on Linux.
-* [ ] **Battery Status**: Real-time battery monitoring.
-* [ ] **Reading Settings**: Read the current configuration from the mouse.
-* [ ] **Command Acknowledgment**: Confirm whether commands were received and accepted by the device.
-
-## Package Limitations
-
-The package can be used directly in Node.js and Bun applications, but some environments such as Electron and Tauri may
-exhibit unexpected behavior depending on their HID implementation and process architecture.
-
-As discussed in issue [#9](https://github.com/HarukaYamamoto0/attack-shark-x11-driver/issues/9), a lower-level
-implementation using Rust would likely provide better control and reliability.
-
-For Tauri, use this package solely for generating, parsing, and manipulating protocol buffers, while sending the actual
-HID reports through a native crate such as [hidapi](https://docs.rs/hidapi/latest/hidapi/).
-
-## Quick Start
-
-```typescript
-import { AttackSharkX11, ConnectionMode, delay, Rate } from './src';
-
-const driver = new AttackSharkX11({ delayMs: 250 });
-
-try {
-	await driver.open();
-	await delay(250);
-
-	await driver.setPollingRate(Rate.eSports);
-	await delay(250);
-
-	const polling_rate = await driver.getPollingRate();
-	console.log(`Polling rate: ${polling_rate}`);
-} catch (error) {
-	console.error('Error:', error instanceof Error ? error.message : error);
-} finally {
-	await driver.close();
-	console.log('\nDriver closed.');
-}
-
-```
-
-The `delayMs` option exists because the protocol currently lacks reliable command acknowledgment handling.
-
-Until response validation is implemented, a delay of approximately 250–300 ms between commands is recommended. Sending
-packets too quickly may cause commands to be ignored or leave the device in an inconsistent state.
-
-## Linux Setup
-
-To access the device without root privileges on Linux, create an udev rule.
-
-### 1. Create the rule file
+## Install
 
 ```bash
-sudo nano /etc/udev/rules.d/99-attack-shark-x11.rules
+git clone https://github.com/HolyJoey/attack-shark-x11.git
+cd attack-shark-x11
+./install.sh
 ```
 
-### 2. Add the rules
+The installer copies the app into `~/.local/share`, adds a menu entry, and asks
+before installing one udev rule with `sudo`. The rule is needed because raw HID
+access is root-only by default. `./uninstall.sh` reverses all of it.
 
-```udev
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa60", MODE="0660", GROUP="plugdev", TAG+="uaccess"
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1d57", ATTRS{idProduct}=="fa55", MODE="0660", GROUP="plugdev", TAG+="uaccess"
-```
+**Upgrading?** Run `./install.sh` again. Earlier versions installed the rule as
+`99-attack-shark-x11.rules`, which runs too late to grant access to a newly
+plugged-in mouse; the installer swaps it for `70-attack-shark-x11.rules`.
 
-> Some distributions do not provide the `plugdev` group by default.
->
-> If the group does not exist, remove `GROUP="plugdev"` and rely on `TAG+="uaccess"`.
+**Requirements:** Python 3, PyGObject, GTK 4, libadwaita.
 
-### 3. Reload the rules
+| Distro | Packages |
+| --- | --- |
+| Debian / Ubuntu | `python3-gi gir1.2-gtk-4.0 gir1.2-adw-1` |
+| Fedora | `python3-gobject gtk4 libadwaita` |
+| Arch | `python-gobject gtk4 libadwaita` |
 
-```bash
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
+## Hardware
 
-### 4. Reconnect the device
+Works over the 2.4 GHz receiver (`1d57:fa60`) and the USB cable (`1d57:fa55`).
+Over the cable the battery card says so, instead of showing it as on a dock or
+charger. Macros can only be recorded over the receiver: the vendor software
+uses a different macro layout on the cable, and that isn't implemented.
 
-Disconnect and reconnect the mouse.
+The vendor's software covers around 18 mice, so other models may speak the same
+protocol — reports and packet captures are welcome.
 
-Depending on the distribution and session manager, logging out and back in may also be required before the new
-permissions are applied.
+## Known limits
 
-## Supported Hardware
+- **Macros can't be read back.** The mouse has no read path for them, so the app
+  keeps its own copy of what it wrote.
+- **DPI above 10,000 lands on 200-point steps.** The sensor stores half the value
+  above 10,000, so only even hundreds are representable. Below that it is exact
+  in 50-point steps.
+- **The battery percentage is a voltage reading.** The mouse doesn't count charge;
+  it reads the battery's voltage, which sits high while charging and for several
+  minutes after undocking. Expect it to jump up on the dock and drift back down
+  afterwards. The app leaves that settling period out of its estimates.
+- **Time left needs some history first.** The app has to watch about 20 minutes
+  of charging, and of normal use, before it knows your mouse's rates; after that
+  the estimate shows straight away. Freshly charged, the reading sits at 100% for
+  a while, and there's no estimate until it starts to drop.
+- **Pointer settings need Hyprland.** The page hides itself otherwise, and applying
+  lasts until Hyprland restarts unless you also write the config file.
 
-| Device           | Connection mode  | Status     |
-|------------------|------------------|------------|
-| Attack Shark X11 | Wired            | Supported  |
-| Attack Shark X11 | 2.4 GHz wireless | Supported  |
-| Attack Shark X11 | Bluetooth        | Not tested |
+## Credit
 
-The Attack Shark R1 may use a compatible protocol, but this has not been verified.
+Built on the protocol research and TypeScript driver by
+[HarukaYamamoto0](https://github.com/HarukaYamamoto0/attack-shark-x11-driver)
+(MIT). The device layer here is a Python port of that work, with five fixes found
+by testing against real hardware:
 
-### Supported Runtimes
+- the lighting packet's checksum was never recalculated, so lighting changes were
+  rejected by the mouse
+- the light mode byte wasn't shifted back when read, so reading then writing
+  scrambled the mode
+- button slots come back at the offsets they're written to, not the shuffled order
+  the protocol notes describe
+- the macro repeat count sits at offset 8, and the side buttons are ids 7 and 8
+- the macro checksum starts at byte 8 and leaves out the play mode, so the mouse
+  silently drops any macro that isn't "repeat N times"; it starts at byte 4, as
+  in the official software
 
-| Runtime  | Status       |
-|----------|--------------|
-| Node.js  | Supported    |
-| Bun      | Supported    |
-| Electron | Experimental |
-| Tauri    | Experimental |
+Over the USB cable, the upstream driver cuts the DPI packet one byte short,
+dropping half its checksum; the mouse declares 52 bytes, and this app sends 52.
 
-## Important Warnings
-
-* **Device recovery:** If the mouse stops responding, switch it to Bluetooth mode for a few seconds and then switch it
-  back to wired or 2.4 GHz mode.
-* **Protocol safety:** Avoid sending unknown or malformed packets. Some configuration fields may be persisted directly
-  to the device.
-* **Command timing:** Sending multiple commands without sufficient delay may cause packets to be dropped.
-* **Platform support:** The project is designed to be cross-platform, but Linux has received the most testing.
-* **No firmware recovery:** This project does not currently provide firmware flashing or recovery capabilities.
-
-## Protocol Documentation
-
-Protocol research and packet documentation are available in the [`docs/`](./docs) directory.
-
-The reverse-engineering process involved tools and techniques such as:
-
-* Wireshark
-* USBPcap
-* HID feature report inspection
-* Static analysis of official software
-* Crawling web-based driver resources
-* Comparing configuration packets across different mouse models
-
-Some protocol fields remain undocumented or only partially understood.
-
-## Contributing
-
-Contributions are welcome, particularly in areas where physical hardware access or additional protocol captures are
-required.
-
-Useful contributions include:
-
-* Testing with other mouse models
-* USBPcap or Wireshark captures
-* Documentation of unknown packet fields
-* Protocol analysis
-* Bug fixes
-* Rust or native HID implementations
-* Firmware extraction and analysis
-* Hardware teardown documentation
-* Improvements to tests and packet validation
-
-When reporting compatibility with another device, include as much information as possible:
-
-* Mouse model
-* USB VID and PID
-* Connection mode
-* Official driver version
-* Captured requests and responses
-* Whether the device recovered normally after testing
-
-Pull requests and issues will be reviewed when time permits.
-
-## Supporting the Project
-
-This project exists because of many hours spent analyzing proprietary software, capturing USB HID traffic, documenting
-undocumented protocols, testing hardware behavior, and building an independent cross-platform implementation.
-
-Active reverse-engineering work is paused because this level of research is challenging to sustain without financial
-support.
-
-Financial contributions do not guarantee new features or releases, but they may make it possible for me to dedicate
-additional time to protocol research, documentation, testing, and broader device support in the future.
-
-### Sponsors
-
-* GitHub Sponsors: https://github.com/sponsors/HarukaYamamoto0
-* Ko-fi: https://ko-fi.com/harukayamamoto0
-
-Non-financial contributions are also valuable. Protocol captures, device testing, documentation, hardware information,
-issues, and pull requests can help keep the research useful to the community.
+`protocol-reference/` holds the upstream protocol notes and packet captures, and
+`protocol-reference/docs/vendor-software-findings.md` records what disassembling
+the official software showed: its full button-action table, how it handles the
+battery, and how it talks to the mouse over the cable.
 
 ## License
 
-MIT © [HarukaYamamoto0](https://github.com/HarukaYamamoto0)
+MIT, also in [`LICENSE`](LICENSE):
 
----
+```text
+MIT License
 
-*Disclaimer: This project is not affiliated with or endorsed by Attack Shark. Use it at your own risk.*
+Copyright (c) 2026 HarukaYamamoto0 (original TypeScript driver)
+Copyright (c) 2026 HolyJoey (Python port and GTK app)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
