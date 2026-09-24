@@ -111,43 +111,59 @@ def watch_battery(on_reading, on_missing, on_asleep, stop):
 			stop.wait(5)
 			continue
 		wired = device.is_wired(path)  # on the cable to this PC, not a dock or charger
-		shown = None
-		first = True
-		asleep = False
-		last_record = 0.0
-		last_heard = time.monotonic()
+		follower = _BatteryFollower(wired, on_reading, on_asleep)
 		try:
 			while not stop.is_set():
-				if not select.select([fd], [], [], ASLEEP_AFTER)[0]:
-					if not asleep and time.monotonic() - last_heard >= ASLEEP_AFTER:
-						asleep, shown, first = True, None, True
-						on_asleep()
-					continue
-				data = os.read(fd, 64)
-				last_heard = time.monotonic()
-				asleep = False
-				reading = device.parse_battery(data)
-				if not reading:
-					continue
-				if first:
-					first = False
-					# The first report after connecting or waking can be a placeholder 100%.
-					if reading == (100, device.BATTERY_DISCHARGING):
-						continue
-				now = time.monotonic()
-				if shown and reading == shown[:2] and now - last_record < store.RECORD_EVERY:
-					continue
-				last_record = now
-				percent, status = reading
-				estimate, settling = store.record_battery(percent, status)
-				if (percent, status, estimate, settling, wired) != shown:
-					shown = (percent, status, estimate, settling, wired)
-					on_reading(*shown)
+				if select.select([fd], [], [], ASLEEP_AFTER)[0]:
+					follower.report(os.read(fd, 64))
+				else:
+					follower.quiet()
 		except OSError:
 			on_missing('The mouse was disconnected.')
 		finally:
 			os.close(fd)
 		stop.wait(2)
+
+
+class _BatteryFollower:
+	"""What watch_battery remembers between messages, and what it does with each."""
+
+	def __init__(self, wired, on_reading, on_asleep):
+		self.wired, self.on_reading, self.on_asleep = wired, on_reading, on_asleep
+		self.shown = None
+		self.first = True
+		self.asleep = False
+		self.last_record = 0.0
+		self.last_heard = time.monotonic()
+
+	def quiet(self):
+		if not self.asleep and time.monotonic() - self.last_heard >= ASLEEP_AFTER:
+			self.asleep, self.shown, self.first = True, None, True
+			self.on_asleep()
+
+	def _is_placeholder(self, reading):
+		# The first report after connecting or waking can be a placeholder 100%.
+		if not self.first:
+			return False
+		self.first = False
+		return reading == (100, device.BATTERY_DISCHARGING)
+
+	def report(self, data):
+		self.last_heard = time.monotonic()
+		self.asleep = False
+		reading = device.parse_battery(data)
+		if not reading or self._is_placeholder(reading):
+			return
+		now = time.monotonic()
+		if self.shown and reading == self.shown[:2] and now - self.last_record < store.RECORD_EVERY:
+			return
+		self.last_record = now
+		percent, status = reading
+		estimate, settling = store.record_battery(percent, status)
+		state = (percent, status, estimate, settling, self.wired)
+		if state != self.shown:
+			self.shown = state
+			self.on_reading(*state)
 
 
 # --- writes ------------------------------------------------------------------

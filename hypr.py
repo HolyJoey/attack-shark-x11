@@ -37,6 +37,22 @@ def mouse_devices():
 	return names
 
 
+def _numeric_option(option):
+	"""Raw text of a numeric Hyprland option, or None when it can't be read."""
+	for line in _hyprctl(['getoption', option]).splitlines():
+		if line.startswith(('float:', 'int:')):
+			return line.split(':', 1)[1].strip()
+	return None
+
+
+def _accel_profile():
+	profile = ''
+	for line in _hyprctl(['getoption', 'input:accel_profile']).splitlines():
+		if line.startswith('str:'):
+			profile = line.split(':', 1)[1].strip().strip('[]')
+	return profile if profile in ACCEL_PROFILES else 'default'
+
+
 def global_settings():
 	"""Hyprland's current global input settings, used as the starting point."""
 	settings = dict(DEFAULTS)
@@ -46,19 +62,14 @@ def global_settings():
 		('natural_scroll', 'input:natural_scroll', bool),
 		('left_handed', 'input:left_handed', bool),
 	):
-		for line in _hyprctl(['getoption', option]).splitlines():
-			if line.startswith(('float:', 'int:')):
-				raw = line.split(':', 1)[1].strip()
-				try:
-					settings[key] = kind(float(raw)) if kind is not bool else bool(int(float(raw)))
-				except ValueError:
-					pass
-				break
-	profile = ''
-	for line in _hyprctl(['getoption', 'input:accel_profile']).splitlines():
-		if line.startswith('str:'):
-			profile = line.split(':', 1)[1].strip().strip('[]')
-	settings['accel_profile'] = profile if profile in ACCEL_PROFILES else 'default'
+		raw = _numeric_option(option)
+		if raw is None:
+			continue
+		try:
+			settings[key] = bool(int(float(raw))) if kind is bool else kind(float(raw))
+		except ValueError:
+			pass
+	settings['accel_profile'] = _accel_profile()
 	return settings
 
 

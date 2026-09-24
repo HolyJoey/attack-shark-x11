@@ -37,6 +37,7 @@ CUSTOM_COLOR_MODES = {1, 2}
 # "until any key" means until another mouse button is clicked.
 PLAY_MODES = ['Repeat a number of times', 'Repeat until another mouse button is clicked',
               'Repeat while held']
+NOTIFY_SELECTED = 'notify::selected'
 PRESET_COLORS = ['#ff3b3b', '#ff7a2f', '#ffe03b', '#3bff6a', '#3bf0ff', '#3b6bff', '#c77dff', '#ffffff']
 
 # Slots the firmware exposes for the five physical buttons plus the DPI button.
@@ -400,8 +401,8 @@ class PerformancePage(Gtk.Box):
 
 	def on_stage_toggled(self, index):
 		card = self.cards[index]
-		enabled = [c.enabled.get_active() for c in self.cards]
-		if not card.enabled.get_active() and (index + 1 == self.current_stage or not any(enabled)):
+		if not card.enabled.get_active() and (index + 1 == self.current_stage
+				or not any(c.enabled.get_active() for c in self.cards)):
 			self.win.toast('The active stage can’t be turned off — pick another stage first')
 			card._loading = True
 			card.enabled.set_active(True)
@@ -721,12 +722,16 @@ class KeyCaptureDialog(Adw.AlertDialog):
 		self.add_controller(keys)
 
 	def _on_key(self, _c, keyval, _code, state):
+		self._capture_key(keyval, state)
+		return True  # the dialog swallows every key while it is open
+
+	def _capture_key(self, keyval, state):
 		name = Gdk.keyval_name(keyval) or ''
 		if name in MODIFIER_BITS:  # wait for a real key
-			return True
+			return
 		usage = KEY_TO_USAGE.get(name) or KEY_TO_USAGE.get(name.lower())
 		if usage is None:
-			return True
+			return
 		modifiers = 0
 		if state & Gdk.ModifierType.CONTROL_MASK:
 			modifiers |= 0x01
@@ -738,7 +743,6 @@ class KeyCaptureDialog(Adw.AlertDialog):
 			modifiers |= 0x08
 		self.on_captured(modifiers, usage)
 		self.close()
-		return True
 
 
 class MacroDialog(Adw.Window):
@@ -781,7 +785,7 @@ class MacroDialog(Adw.Window):
 		self.mode = Gtk.DropDown.new_from_strings(PLAY_MODES)
 		self.mode.set_selected((existing or {}).get('mode', 0))
 		self.mode.set_hexpand(True)
-		self.mode.connect('notify::selected', lambda *_: self._update_repeat())
+		self.mode.connect(NOTIFY_SELECTED, lambda *_: self._update_repeat())
 		mode_row.append(self.mode)
 		play.append(mode_row)
 		repeat_row = box(Gtk.Orientation.HORIZONTAL, 12)
@@ -901,7 +905,7 @@ class ButtonRow(Gtk.Box):
 		self.dropdown = Gtk.DropDown.new_from_strings([a[1] for a in self.actions])
 		self.dropdown.set_hexpand(True)
 		self.dropdown.set_valign(Gtk.Align.CENTER)
-		self.dropdown.connect('notify::selected', self._on_action)
+		self.dropdown.connect(NOTIFY_SELECTED, self._on_action)
 		self.append(self.dropdown)
 		self.detail = button_widget('', ['ghost'], self._edit_detail)
 		self.detail.set_valign(Gtk.Align.CENTER)
@@ -1042,6 +1046,27 @@ class ButtonsPage(Gtk.Box):
 
 # --- Profiles page ------------------------------------------------------------
 
+def _apply_profile(data):
+	# Check up front: failing at the macro step would leave the profile half applied.
+	if data.get('macros') and service.on_cable():
+		raise device.WiredUnsupported('This profile has macros, which can only be written over '
+		                              'the 2.4 GHz receiver. Nothing was changed.')
+	dpi = data.get('dpi') or {}
+	if dpi:
+		service.set_performance(
+			dpi['values'], dpi['colors'], dpi['current_stage'], dpi['active_stages'],
+			dpi.get('angle_snap', False), dpi.get('ripple_control', True),
+			data.get('polling'))
+	if data.get('lighting'):
+		service.set_lighting(**data['lighting'])
+	for slot, macro in (data.get('macros') or {}).items():
+		service.set_macro(int(slot), macro['events'], macro.get('mode', 0), macro.get('repeat', 1))
+		store.save_macro(int(slot), macro)
+	if data.get('buttons'):
+		service.set_buttons({int(k): v for k, v in data['buttons'].items()})
+	return True
+
+
 class ProfilesPage(Gtk.Box):
 	"""Saved snapshots of every setting, kept as files in ~/.config/attack-shark-x11."""
 
@@ -1155,24 +1180,7 @@ class ProfilesPage(Gtk.Box):
 			return
 
 		def work():
-			# Check up front: failing at the macro step would leave the profile half applied.
-			if data.get('macros') and service.on_cable():
-				raise device.WiredUnsupported('This profile has macros, which can only be written over '
-				                              'the 2.4 GHz receiver. Nothing was changed.')
-			dpi = data.get('dpi') or {}
-			if dpi:
-				service.set_performance(
-					dpi['values'], dpi['colors'], dpi['current_stage'], dpi['active_stages'],
-					dpi.get('angle_snap', False), dpi.get('ripple_control', True),
-					data.get('polling'))
-			if data.get('lighting'):
-				service.set_lighting(**data['lighting'])
-			for slot, macro in (data.get('macros') or {}).items():
-				service.set_macro(int(slot), macro['events'], macro.get('mode', 0), macro.get('repeat', 1))
-				store.save_macro(int(slot), macro)
-			if data.get('buttons'):
-				service.set_buttons({int(k): v for k, v in data['buttons'].items()})
-			return True
+			return _apply_profile(data)
 
 		def done(_result, error):
 			if error:
@@ -1275,7 +1283,7 @@ class PointerPage(Gtk.Box):
 		accel_row.append(label('Acceleration', ['muted'], width_chars=16))
 		self.accel = Gtk.DropDown.new_from_strings(['Hyprland default', 'Flat (no acceleration)', 'Adaptive'])
 		self.accel.set_hexpand(True)
-		self.accel.connect('notify::selected', lambda *_: self._dirty())
+		self.accel.connect(NOTIFY_SELECTED, lambda *_: self._dirty())
 		accel_row.append(self.accel)
 		card.append(accel_row)
 		self.scroll = self._scale(card, 'Scroll speed', 0.1, 3.0, 0.05, 2)
@@ -1434,7 +1442,7 @@ class MainWindow(Adw.ApplicationWindow):
 		brand = box(Gtk.Orientation.HORIZONTAL, 10, halign=Gtk.Align.CENTER)
 		logo_path = os.path.join(APP_DIR, 'x11.png')
 		if os.path.exists(logo_path):
-			ok, png = trimmed_pixbuf(logo_path, 40).save_to_bufferv('png', [], [])
+			_, png = trimmed_pixbuf(logo_path, 40).save_to_bufferv('png', [], [])
 			logo = Gtk.Picture.new_for_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(png)))
 			logo.set_can_shrink(False)
 		else:
@@ -1517,15 +1525,14 @@ class MainWindow(Adw.ApplicationWindow):
 			self.toast(f'Couldn’t read {what} yet ({error}). Retrying…')
 		self.unread.add(page)
 		if not self._retry_id:
-			self._retry_id = GLib.timeout_add_seconds(3, self._retry_loads)
+			self._retry_id = GLib.timeout_add_seconds(3, lambda: bool(self._retry_loads()))
 
 	def _retry_loads(self):
 		self._retry_id = 0
 		if self.mouse_away:
-			return False  # _show_battery retries as soon as it's back
-		for page in list(self.unread):
+			return  # _show_battery retries as soon as it's back
+		for page in self.unread.copy():
 			page.load()  # a page leaves self.unread once its read succeeds
-		return False
 
 	def _set_conn(self, text, css):
 		for c in ('ok', 'err', 'muted'):
@@ -1575,35 +1582,48 @@ class MainWindow(Adw.ApplicationWindow):
 		# charging the state is the headline and the number is only a footnote,
 		# the same way the vendor's software hides it.
 		if charging:
-			self.battery_icon.set_from_icon_name(f'battery-level-{min(level, 90)}-charging-symbolic')
-			self.battery_label.set_text('Charging')
-			for widget in (self.battery_card, self.battery_bar):
-				widget.add_css_class('charging')
-			for css in ('big-word', 'charge'):
-				self.battery_label.add_css_class(css)
-			self.battery_icon.add_css_class('charge')
-			source = 'From this PC over USB' if wired else 'On the dock or a charger'
-			self.battery_state.set_text(f'{source}. Mouse reports {percent}% (reads high while charging)')
-			self._set_conn('● USB cable' if wired else '● Charging', 'ok')
+			self._show_charging(percent, level, wired)
 		elif full:
-			self.battery_icon.set_from_icon_name('battery-level-100-charged-symbolic')
-			self.battery_label.set_text('Full')
-			for css in ('big-word', 'ok'):
-				self.battery_label.add_css_class(css)
-			self.battery_icon.add_css_class('ok')
-			self.battery_state.set_text('Fully charged')
-			self._set_conn('● USB cable' if wired else '● Charging', 'ok')
+			self._show_full(wired)
 		else:
-			self.battery_icon.set_from_icon_name(f'battery-level-{level}-symbolic')
-			self.battery_label.add_css_class('big-number')
-			self.battery_label.set_markup(f'{percent}<span size="small" foreground="#9aa0ad">%</span>')
-			self.battery_state.set_text(service.describe_battery_status(status))
-			self._set_conn('● Connected', 'ok')
+			self._show_discharging(percent, level, status)
 		self.battery_bar.set_value(100 if full else percent)
+		self.battery_note.set_text(self._battery_note(percent, charging or full, estimate, settling))
+		return False
 
+	def _show_charging(self, percent, level, wired):
+		self.battery_icon.set_from_icon_name(f'battery-level-{min(level, 90)}-charging-symbolic')
+		self.battery_label.set_text('Charging')
+		for widget in (self.battery_card, self.battery_bar):
+			widget.add_css_class('charging')
+		for css in ('big-word', 'charge'):
+			self.battery_label.add_css_class(css)
+		self.battery_icon.add_css_class('charge')
+		source = 'From this PC over USB' if wired else 'On the dock or a charger'
+		self.battery_state.set_text(f'{source}. Mouse reports {percent}% (reads high while charging)')
+		self._set_conn('● USB cable' if wired else '● Charging', 'ok')
+
+	def _show_full(self, wired):
+		self.battery_icon.set_from_icon_name('battery-level-100-charged-symbolic')
+		self.battery_label.set_text('Full')
+		for css in ('big-word', 'ok'):
+			self.battery_label.add_css_class(css)
+		self.battery_icon.add_css_class('ok')
+		self.battery_state.set_text('Fully charged')
+		self._set_conn('● USB cable' if wired else '● Charging', 'ok')
+
+	def _show_discharging(self, percent, level, status):
+		self.battery_icon.set_from_icon_name(f'battery-level-{level}-symbolic')
+		self.battery_label.add_css_class('big-number')
+		self.battery_label.set_markup(f'{percent}<span size="small" foreground="#9aa0ad">%</span>')
+		self.battery_state.set_text(service.describe_battery_status(status))
+		self._set_conn('● Connected', 'ok')
+
+	@staticmethod
+	def _battery_note(percent, plugged_in, estimate, settling):
 		if settling:
 			note = 'Reads high for a few minutes after the dock'
-		elif charging or full:
+		elif plugged_in:
 			note = ''
 		elif percent >= 99:
 			# Freshly charged, the reading sits at 100 for a while; with no drop
@@ -1612,9 +1632,8 @@ class MainWindow(Adw.ApplicationWindow):
 		else:
 			note = 'Working out time left (about 20 minutes)'
 		if estimate:
-			note = f'{estimate}. {note}' if settling else estimate
-		self.battery_note.set_text(note)
-		return False
+			return f'{estimate}. {note}' if settling else estimate
+		return note
 
 	def _on_busy_changed(self, busy):
 		GLib.idle_add(lambda: self.set_cursor_from_name('progress' if busy else None) and False)

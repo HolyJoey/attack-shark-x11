@@ -10,6 +10,7 @@ PROFILE_DIR = os.path.join(CONFIG_DIR, 'profiles')
 MACRO_FILE = os.path.join(CONFIG_DIR, 'macros.json')
 POINTER_FILE = os.path.join(CONFIG_DIR, 'pointer.json')
 BATTERY_FILE = os.path.join(CONFIG_DIR, 'battery.json')
+JSON_EXT = '.json'
 
 
 def _ensure():
@@ -38,7 +39,7 @@ def safe_name(name):
 
 
 def profile_path(name):
-	return os.path.join(PROFILE_DIR, safe_name(name) + '.json')
+	return os.path.join(PROFILE_DIR, safe_name(name) + JSON_EXT)
 
 
 def profile_exists(name):
@@ -47,7 +48,7 @@ def profile_exists(name):
 
 def list_profiles():
 	_ensure()
-	return sorted(f[:-5] for f in os.listdir(PROFILE_DIR) if f.endswith('.json'))
+	return sorted(f[:-len(JSON_EXT)] for f in os.listdir(PROFILE_DIR) if f.endswith(JSON_EXT))
 
 
 def save_profile(name, data):
@@ -77,7 +78,7 @@ def import_profile(src):
 	data = _read_json(src, None)
 	if not isinstance(data, dict):
 		raise ValueError('That file is not a profile')
-	name = safe_name(data.get('name') or os.path.basename(src).removesuffix('.json'))
+	name = safe_name(data.get('name') or os.path.basename(src).removesuffix(JSON_EXT))
 	save_profile(name, {**data, 'name': name})
 	return name
 

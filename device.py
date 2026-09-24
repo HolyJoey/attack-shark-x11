@@ -331,12 +331,9 @@ def dpi_to_bytes(dpi):
 def bytes_to_dpi(x_byte, y_byte, double):
 	if x_byte == 0 and y_byte == 0:
 		return 0
-	if y_byte == 0:
-		index = DPI_3311.index(x_byte) if x_byte in DPI_3311 else -1
-		value = index * 50 + 50 if index != -1 else 50
-	elif y_byte == 1:
-		index = DPI_3311.index(x_byte) if x_byte in DPI_3311 else -1
-		value = index * 100 + 100 if index != -1 else 100
+	if y_byte in (0, 1):
+		step = 50 if y_byte == 0 else 100
+		value = (DPI_3311.index(x_byte) + 1) * step if x_byte in DPI_3311 else step
 	else:
 		value = 10100 + ((y_byte << 8 | x_byte) - 199) * 100
 	if double:
